@@ -14,12 +14,12 @@
             app:layout_constraintTop_toTopOf="parent" app:layout_constraintStart_toStartOf="parent"
             android:layout_marginStart="8dp"/>
     <TextView
-            android:text="Idle"
             android:layout_width="0dp"
-            android:layout_height="41dp"
-            android:id="@+id/textViewSrvStat" app:layout_constraintStart_toEndOf="@+id/buttonSrvExec"
-            android:layout_marginStart="8dp" app:layout_constraintEnd_toEndOf="parent" android:layout_marginEnd="8dp"
-            android:layout_marginTop="8dp" app:layout_constraintTop_toTopOf="@+id/buttonSrvExec"/>
+            android:layout_height="36dp"
+            android:id="@+id/textViewSrvStat"
+            app:layout_constraintEnd_toEndOf="parent" android:layout_marginEnd="8dp"
+            android:layout_marginTop="8dp" app:layout_constraintTop_toTopOf="@+id/buttonSrvExec"
+            app:layout_constraintStart_toEndOf="@+id/buttonSrvDisconnect" android:layout_marginStart="8dp"/>
     <EditText
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -34,9 +34,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:id="@+id/buttonSrvSend" app:layout_constraintEnd_toEndOf="parent" android:layout_marginEnd="8dp"
-            app:layout_constraintTop_toTopOf="@+id/editTextSrv"/>
+            app:layout_constraintTop_toTopOf="@+id/editTextSrv" android:enabled="false"/>
     <TextView
-            android:text="TextView"
             android:layout_width="0dp"
             android:layout_height="165dp"
             android:id="@+id/textViewSrv" app:layout_constraintStart_toStartOf="parent"
@@ -51,7 +50,6 @@
             android:layout_marginStart="8dp" android:layout_marginBottom="8dp"
             app:layout_constraintBottom_toTopOf="@+id/textViewCli"/>
     <TextView
-            android:text="Idle"
             android:layout_width="0dp"
             android:layout_height="37dp"
             android:id="@+id/textViewCliStat"
@@ -60,7 +58,6 @@
             android:layout_marginStart="8dp" android:layout_marginBottom="8dp"
             app:layout_constraintBottom_toTopOf="@+id/textViewCli"/>
     <TextView
-            android:text="TextView"
             android:layout_width="384dp"
             android:layout_height="195dp"
             android:id="@+id/textViewCli"
@@ -81,5 +78,12 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:id="@+id/buttonCliSend" app:layout_constraintEnd_toEndOf="parent" android:layout_marginEnd="8dp"
-            android:layout_marginBottom="8dp" app:layout_constraintBottom_toBottomOf="parent"/>
+            android:layout_marginBottom="8dp" app:layout_constraintBottom_toBottomOf="parent" android:enabled="false"/>
+    <Button
+            android:text="Disconnect"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:id="@+id/buttonSrvDisconnect" app:layout_constraintStart_toEndOf="@+id/buttonSrvExec"
+            android:layout_marginStart="8dp"
+            app:layout_constraintTop_toTopOf="@+id/buttonSrvExec"/>
 </androidx.constraintlayout.widget.ConstraintLayout>

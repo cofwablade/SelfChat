@@ -50,6 +50,8 @@ class MainActivity : AppCompatActivity() {
 
                 buttonSrvExec.isClickable = true
                 buttonSrvExec.text = "Exec"
+
+                buttonSrvDisconnect.isEnabled = false
             }
         }
 
@@ -71,7 +73,8 @@ class MainActivity : AppCompatActivity() {
                         Handler(this@MainActivity.mainLooper).post {
 
                             textViewSrv.text = ""
-                            buttonSrvSend.isClickable = false
+                            buttonSrvSend.isEnabled = false
+                            buttonSrvDisconnect.isEnabled = false
                         }
                     }
 
@@ -92,7 +95,8 @@ class MainActivity : AppCompatActivity() {
 
                     Handler(this@MainActivity.mainLooper).post {
 
-                        buttonSrvSend.isClickable = true
+                        buttonSrvSend.isEnabled = true
+                        buttonSrvDisconnect.isEnabled = true
                     }
                 }
             }
@@ -127,6 +131,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        buttonSrvDisconnect.setOnClickListener {
+
+            mSocketServer?.run {
+
+                close()
+            }
+
+            buttonSrvDisconnect.isEnabled = false
+            textViewSrv.text = ""
+       }
+
         // サーバー側の「Send」ボタンが押下された場合の処理
         buttonSrvSend.setOnClickListener {
 
@@ -157,10 +172,12 @@ class MainActivity : AppCompatActivity() {
                 {
                     buttonCliConnect.text = "Disconnect"
                     buttonCliConnect.isClickable = true
+                    buttonCliSend.isEnabled = true
                 }
                 else
                 {
                     buttonCliConnect.isClickable = true
+                    buttonCliSend.isEnabled = false
                 }
             }
         }
@@ -172,6 +189,7 @@ class MainActivity : AppCompatActivity() {
 
                 buttonCliConnect.text = "Connect"
                 buttonCliConnect.isClickable = true
+                buttonCliSend.isEnabled = false
 
                 textViewCli.text = ""
             }
@@ -197,6 +215,7 @@ class MainActivity : AppCompatActivity() {
 
             if ( mSocketClient.isAlive()) {
                 mSocketClient.close()
+                buttonCliSend.isEnabled = false
             }
             else {
                 buttonCliConnect.isClickable = false

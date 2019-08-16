@@ -2,34 +2,43 @@ package com.example.selfchat
 
 import android.os.Handler
 import android.os.HandlerThread
+import java.io.InputStream
 import java.net.Socket
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 class PfSocketSrv( val mSocket : Socket ) : PfSocket()
 {
-    // send用のスレッド( PfSocketSrvで共用 )
     companion object {
-        val mHThreadToSend = HandlerThread( "PfSocketSrvSend" )
+        // send用のスレッド( PfSocketSrvで共用 )
+        val mHThreadMisc = HandlerThread( "PfSocketSrvMisc" )
+
+        // send時に mHThreadToSendとの同期待ち用のフラグ
+        val mFlagMisc = PfFlag()
     }
 
-    // send時に mHThreadToSendとの同期待ち用のフラグ
-    val mFlag = PfFlag()
+    // Locker
+    val mLock = ReentrantLock()
 
     // 受信待ちのスレッド
-    val mHThread = HandlerThread( "PfSocketSrvRecv" )
+    val mHThread = HandlerThread( "PfSocketSrv" )
+
+    // mHThreadとの同期用
+    val mFlag = PfFlag()
+
+    // 入力Stream
+    var mIStream : InputStream? = null
 
     // mHThreadでの受信待ちの1byteのバッファ
     val mReceived1stByte = ByteArray(1)
 
-    // 受信待ちの
+    // 受信待ちのスレッド処理
     val threadProc = object : Runnable {
 
         override fun run() {
 
-            // InputStreamを取得
-            val ist = mSocket.getInputStream()
-
             // 接続している間繰り返す
-            while( isAlive() )
+            while( isAlive_inner() )
             {
                 try {
 
@@ -37,7 +46,11 @@ class PfSocketSrv( val mSocket : Socket ) : PfSocket()
                     mSocket.soTimeout = 0
 
                     // サイズ0では待てないので、1byte待ちをする。
-                    val nread = ist.read( mReceived1stByte, 0, mReceived1stByte.size )
+                    var nread = 0
+
+                    mIStream?.run {
+                        nread = read(mReceived1stByte, 0, mReceived1stByte.size)
+                    }
 
                     when
                     {
@@ -59,18 +72,34 @@ class PfSocketSrv( val mSocket : Socket ) : PfSocket()
                 }
             }
 
+            // mIStreamを破棄する
+            mLock.withLock {
+
+                mIStream?.close()
+
+                mIStream = null
+            }
+
             // 切断されたらその旨をリスナーに通知し終了
             mListener.onDisconnected?.invoke( Unit )
+
+            mFlag.set(1)
         }
     }
 
     init {
 
         // 送信用のスレッドが起動していなければ起動させる
-        if( !mHThreadToSend.isAlive() )
+        if( !mHThreadMisc.isAlive() )
         {
-            mHThreadToSend.start()
+            mHThreadMisc.start()
         }
+
+        // InputStreamを取得
+        mIStream = mSocket.getInputStream()
+
+        // 同期用のフラグをクリア
+        mFlag.clear()
 
         // 受信待ちのスレッドを起動
         mHThread.start()
@@ -84,41 +113,45 @@ class PfSocketSrv( val mSocket : Socket ) : PfSocket()
     // 送信もメインスレッドからはNG
     override fun send( data : ByteArray, len : Int ) : Int
     {
-        if( !mSocket.isConnected ) {
-            return -1
-        }
+        mLock.withLock {
 
-        mFlag.clear()
-
-        val handler = Handler( mHThreadToSend.looper )
-
-        handler.post{
-
-            try {
-                val ost = mSocket.getOutputStream()
-
-                when( len )
-                {
-                    0 -> {
-                        ost.write( data )
-
-                        mFlag.set( data.size )
-                    }
-
-                    else -> {
-                        ost.write( data, 0, len )
-
-                        mFlag.set( len )
-                    }
-                }
-
-            } catch( e: Exception ) {
-
-                mFlag.set( -1 )
+            if ( !isAlive_inner() ) {
+                return -1
             }
-        }
 
-        return mFlag.wait().toInt()
+            mFlagMisc.clear()
+
+            val handler = Handler(mHThreadMisc.looper)
+
+            handler.post {
+
+                try {
+
+                    val ost = mSocket.getOutputStream()
+
+                    when (len) {
+
+                        0 -> {
+                            ost.write(data)
+
+                            mFlagMisc.set(data.size)
+                        }
+
+                        else -> {
+                            ost.write(data, 0, len)
+
+                            mFlagMisc.set(len)
+                        }
+                    }
+
+                } catch (e: Exception) {
+
+                    mFlagMisc.set(-1)
+                }
+            }
+
+            return mFlagMisc.wait().toInt()
+        }
     }
 
     // 受信はmHThreadにおいて、onReceiveからの呼び出しを想定するので、ここでは特別なケアはしない。
@@ -126,10 +159,10 @@ class PfSocketSrv( val mSocket : Socket ) : PfSocket()
     {
         try {
 
-            val ist = mSocket.getInputStream()
+            // mIStream = mSocket.getInputStream()
 
-            when
-            {
+            when {
+
                 timeout_msec == 0 -> {
                     mSocket.soTimeout = 1
                 }
@@ -150,13 +183,13 @@ class PfSocketSrv( val mSocket : Socket ) : PfSocket()
             when( len )
             {
                 0 -> {
-                    n_read = ist.read( data, 1, data.size-1 )
+                    mIStream?.run { n_read = read( data, 1, data.size-1 ) }
                 }
 
                 else -> {
 
                     if( len > 1 ) {
-                        n_read = ist.read(data, 1, len - 1)
+                        mIStream?.run { n_read = read(data, 1, len - 1) }
                     }
                 }
             }
@@ -171,17 +204,42 @@ class PfSocketSrv( val mSocket : Socket ) : PfSocket()
 
     override fun close()
     {
-        mSocket.close()
+        mLock.withLock {
+
+            if( isAlive_inner() == false )
+            {
+                return
+            }
+
+            Handler(mHThreadMisc.looper).post {
+
+                mSocket.close()
+
+                mIStream?.close()
+
+            }
+        }
+
+        // 受信スレッドの終了を待つ
+        mFlag.wait()
+    }
+
+    private fun isAlive_inner() : Boolean
+    {
+        if( mSocket.isConnected() && !mSocket.isClosed() )
+        {
+            mIStream?.run { return true }
+        }
+
+        return false
     }
 
     override fun isAlive() : Boolean
     {
-        if( mSocket.isConnected() && !mSocket.isClosed() )
-        {
-            return true
-        }
+        mLock.withLock {
 
-        return false
+            return isAlive_inner()
+        }
     }
 
 }

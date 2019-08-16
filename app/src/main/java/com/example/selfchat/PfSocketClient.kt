@@ -13,29 +13,30 @@ import kotlin.concurrent.withLock
 
 class PfSocketClient : PfSocket()
 {
-    // send用のスレッド( PfSocketClientで共用 )
     companion object {
-        val mHThreadToSend = HandlerThread( "PfSocketClientSend" )
-    }
+        // sendなどのスレッド( PfSocketClientで共用 )
+        val mHThreadMisc = HandlerThread( "PfSocketClientMisc" )
 
-    // send用のスレッドとの同期用のフラグ
-    val mFlagToSend = PfFlag()
+        // mHThreadMiscスレッドとの同期用のフラグ
+        val mFlagMisc = PfFlag()
+    }
 
     // Locker
     val mLock = ReentrantLock()
 
-    // スレッド
+    // 接続待ち受信待ちのスレッド
     val mHThread = HandlerThread( "PfSocketClient" )
 
+    // mHThreadスレッドとの同期用
     val mFlag = PfFlag()
 
     // ソケット
     var mSocket : Socket = Socket()
 
-    //
+    // 入力Stream
     var mIStream : InputStream? = null
 
-    // 状態変数
+    // 接続状態
     val mStatus = MStatus( false )
 
         data class MStatus( var connecting : Boolean ) {
@@ -106,9 +107,9 @@ class PfSocketClient : PfSocket()
                 }
 
                 // 送信用のスレッドが起動していなければ起動させる
-                if( !mHThreadToSend.isAlive() )
+                if( !mHThreadMisc.isAlive() )
                 {
-                    mHThreadToSend.start()
+                    mHThreadMisc.start()
                 }
 
                 // 入力ストリームを得る
@@ -120,20 +121,17 @@ class PfSocketClient : PfSocket()
                 }
 
                 // 接続済みのフラグを立てる
+                // 接続待ち中のフラグを下す
                 mLock.withLock {
                     mStatus.connected = true
+                    mStatus.connecting = false
                 }
 
                 // リスナーを呼び出す
                 mListener.onConnected?.invoke( true )
 
-                // 接続待ち中のフラグを下す
-                mLock.withLock {
-                    mStatus.connecting = false
-                }
-
                 // 受信待ちの処理を起動する
-                var handler = Handler( mHThread.looper )
+                val handler = Handler( mHThread.looper )
 
                 handler.post( threadProc_WaitRecv )
             }
@@ -237,13 +235,14 @@ class PfSocketClient : PfSocket()
 
             mStatus.connecting = true
 
-            if (mHThread.isAlive() == false) {
+            if ( mHThread.isAlive() == false ) {
+
                 mHThread.start()
             }
 
-            val handler = Handler(mHThread.looper)
+            val handler = Handler( mHThread.looper )
 
-            handler.post(threadProc_Connect)
+            handler.post( threadProc_Connect )
         }
 
         return true
@@ -254,91 +253,91 @@ class PfSocketClient : PfSocket()
     {
         mLock.withLock {
 
-            if( !isAlive_inner() )
-            {
+            if( !isAlive_inner() ) {
                 return -1
             }
 
-            mFlagToSend.clear()
+            mFlagMisc.clear()
 
-            val handler = Handler( mHThreadToSend.looper )
+            val handler = Handler( mHThreadMisc.looper )
 
             handler.post {
 
-                // 送信はメインスレッドから実施してもOKだと思っている…。★実際の動きを要チェックや!
                 try {
 
                     val ost = mSocket.getOutputStream()
 
-                    when( len )
-                    {
+                    when( len ) {
+
                         0 -> {
                             ost.write( data )
 
-                            mFlagToSend.set( data.size )
+                            mFlagMisc.set( data.size )
                         }
 
                         else -> {
                             ost.write( data, 0, len )
 
-                            mFlagToSend.set( len )
+                            mFlagMisc.set( len )
                         }
                     }
 
                 } catch( e: Exception ) {
 
-                    mFlagToSend.set( -1 )
+                    mFlagMisc.set( -1 )
                 }
             }
 
-            return mFlagToSend.wait().toInt()
+            return mFlagMisc.wait().toInt()
         }
     }
 
+    // 受信はmHThreadにおいて、onReceiveからの呼び出しを想定するので、ここでは特別なケアはしない。
     override fun recv( data : ByteArray, len : Int, timeout_msec : Int ) : Int
     {
-            // 受信は別スレッドから。ListnerのonRecevedからの呼び出しを想定するので、ここでは特別なケアはしない。
-            try {
+        try {
 
-                mIStream = mSocket.getInputStream()
+            // mIStream = mSocket.getInputStream()
 
-                when {
-                    timeout_msec == 0 -> {
-                        mSocket.soTimeout = 1
-                    }
-                    timeout_msec < 0 -> {
-                        mSocket.soTimeout = 0
-                    }
-                    else -> {
-                        mSocket.soTimeout = timeout_msec
-                    }
+            when {
+
+                timeout_msec == 0 -> {
+                    mSocket.soTimeout = 1
                 }
-
-                // 1byte分はすでにスレッド側でリードしたうえで、
-                // mListener.OnReceived経由でここに至るはず
-                data[0] = mReceived1stByte[0]
-
-                var n_read : Int = 0
-
-                when (len) {
-
-                    0 -> {
-                        mIStream?.run { n_read = read( data, 1, data.size-1 ) }
-                    }
-
-                    else -> {
-                        if( len > 1 ) {
-                            mIStream?.run { n_read = read(data, 1, len - 1) }
-                        }
-                    }
+                timeout_msec < 0 -> {
+                    mSocket.soTimeout = 0
                 }
-
-                return n_read + 1
-
-            } catch (e: Exception) {
-
-                return -1
+                else -> {
+                    mSocket.soTimeout = timeout_msec
+                }
             }
+
+            // 1byte分はすでにスレッド側でリードしたうえで、
+            // mListener.OnReceived経由でここに至るはず
+            data[0] = mReceived1stByte[0]
+
+            var n_read : Int = 0
+
+            when (len) {
+
+                0 -> {
+                    mIStream?.run { n_read = read( data, 1, data.size-1 ) }
+                }
+
+                else -> {
+
+                    if( len > 1 ) {
+                        mIStream?.run { n_read = read(data, 1, len - 1) }
+                    }
+                }
+            }
+
+            return n_read + 1
+
+        } catch (e: Exception) {
+
+            return -1
+        }
     }
 
     override fun close()
@@ -356,15 +355,11 @@ class PfSocketClient : PfSocket()
                 mStatus.connected = false
                 mStatus.connecting = false
 
-                Handler(mHThreadToSend.looper).post {
-
-                    // mHThread.interrupt()
+                Handler( mHThreadMisc.looper ).post {
 
                     mSocket.close()
 
                     mIStream?.close()
-
-                    // mFlag.set(1)
                 }
             }
         }
